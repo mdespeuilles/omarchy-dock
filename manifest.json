@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "mdespeuilles.dock",
+  "name": "Dock",
+  "version": "1.0.0",
+  "author": "mdespeuilles",
+  "license": "MIT",
+  "description": "Always-visible application dock that reserves its own space: pinned apps, running-window indicators, click to launch or focus",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Dock.qml"
+  }
+}
