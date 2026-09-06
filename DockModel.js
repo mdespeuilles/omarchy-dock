@@ -110,6 +110,27 @@ function isPinned(pinned, id) {
   return false
 }
 
+// The pinned ids in the order they are drawn, which is the order a drag
+// manipulates. Rebuilding the list from what is on screen rather than indexing
+// into the config keeps a duplicate or an unresolvable entry — both of which
+// buildItems drops — from shifting the drop by one.
+function pinnedOrder(items) {
+  var out = []
+  for (var i = 0; i < items.length; i++)
+    if (items[i].pinned === true) out.push(items[i].id)
+  return out
+}
+
+// Move one entry, clamping the destination rather than refusing it: the drag
+// hands us wherever the icon was let go.
+function moveEntry(list, from, to) {
+  var out = list.slice()
+  if (from < 0 || from >= out.length) return out
+  var moved = out.splice(from, 1)[0]
+  out.splice(Math.max(0, Math.min(out.length, to)), 0, moved)
+  return out
+}
+
 // Parse ~/.config/omarchy/dock.json, tolerating an absent or malformed file:
 // a dock that renders empty is recoverable, one that fails to load is not.
 function parseConfig(raw, defaults) {

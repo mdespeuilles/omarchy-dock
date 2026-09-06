@@ -44,7 +44,16 @@ rm -rf ~/.config/omarchy/plugins/mdespeuilles.dock
 - **Middle click** — always a new instance, even when the app is already open.
 - **Right click** — New window / Pin to dock / Unpin from dock / Quit. Quit
   closes every window of the app, so it says how many when there is more than
-  one.
+  one. Right-clicking the same icon again closes the menu, right-clicking
+  another hands it straight over, and while a menu is up a plain click anywhere
+  on the dock dismisses it instead of launching — the same thing a click off the
+  dock has always done.
+- **Drag a pinned icon** sideways to reorder the dock. The row opens a gap as
+  you go, the icon can only travel as far as the pinned apps reach, and the new
+  order is written to `dock.json` on the drop — not at every slot it crosses.
+  Below the drag threshold the gesture is still a click, so nothing changes
+  about clicking. Apps that are only running, past the divider, have no saved
+  position and so do not drag.
 - **Indicator dots** under a running app: one per window, up to three. The dot
   is accented and elongated while one of that app's windows is focused, so the
   dock shows both how many windows there are and whether you are in one.
@@ -85,15 +94,18 @@ instant the panel appears.
 **Right-click the nine-dot button.** Left click opens the applications, right
 click opens the settings card — the button is the only system slot in a row
 that is otherwise all applications, so it is where dock-level actions belong.
-`omarchy-shell dock settings` opens the same card, which is also the way back
-in after hiding the button.
+
+**Or right-click the dock itself**, anywhere that is not an icon: the strip's
+background, the gap around the row, the divider. That is the way in that
+survives hiding the button, so no setting can lock you out of the settings.
+`omarchy-shell dock settings` opens the same card.
 
 Every control applies immediately and writes `dock.json`, the same way pinning
 does. There is no OK button to forget.
 
 | Setting | What it changes |
 |---|---|
-| **Applications button** | Shows or hides the nine-dot button, and the divider with it. |
+| **Applications button** | Shows or hides the nine-dot button, and the divider with it. Right-clicking the dock background still opens this card. |
 | **Height** | Icon size — Small 32, Medium 40, Large 48, Huge 56 — and with it the height of the whole strip. The card names the resulting reserved height. |
 
 There is deliberately no auto-hide option. One was built and removed: floating
@@ -115,7 +127,7 @@ unpin, and hand-editable — it is watched, so a save shows up immediately.
 
 | Key | Default | What it does |
 |---|---|---|
-| `pinned` | seeded on first run | Desktop entry ids, in dock order. The `.desktop` suffix is optional. |
+| `pinned` | seeded on first run | Desktop entry ids, in dock order — the order a drag rewrites. The `.desktop` suffix is optional. |
 | `iconSize` | `40` | Icon edge in logical pixels, 16–96. The reserved strip grows with it. |
 | `showAppsButton` | `true` | The nine-dot applications button. |
 
@@ -169,7 +181,7 @@ The tell is an error whose line number does not move while the file does.
 | `Dock.qml` | the surface, the slots, the tooltip and the context menu |
 | `AppPanel.qml` | the full-screen application grid and its search |
 | `SettingsPanel.qml` | the settings card |
-| `DockModel.js` | pure model logic: id normalization, the pinned/running merge, window cycling, config parsing |
+| `DockModel.js` | pure model logic: id normalization, the pinned/running merge, window cycling, reordering, config parsing |
 
 ## License
 

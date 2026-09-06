@@ -67,6 +67,15 @@ Item {
   readonly property var activeToplevel: ToplevelManager.activeToplevel
   property var items: []
 
+  // How many slots at the head of the row are pinned, which is how far a drag
+  // is allowed to travel.
+  readonly property int pinnedCount: {
+    var n = 0
+    for (var i = 0; i < root.items.length; i++)
+      if (root.items[i].pinned === true) n++
+    return n
+  }
+
   // The drawn row: the items, with a separator marker inserted where the
   // pinned apps end and the merely-running ones begin.
   readonly property var rows: {
@@ -98,6 +107,15 @@ Item {
   }
 
   function rebuild() {
+    // A window opening or closing mid-gesture would rebuild the row and destroy
+    // the very delegate the drag is running in — the model is a plain array, so
+    // every delegate is recreated. The rebuild waits for the drop; a drag lasts
+    // a moment, and finishDrag always runs it.
+    if (root.dragging) {
+      root.rebuildDeferred = true
+      return
+    }
+
     var groups = ({})
     var values = []
     try {
@@ -227,6 +245,55 @@ Item {
     for (var i = 0; i < windows.length; i++) windows[i].close()
   }
 
+  // --------------------------------------------------------------- dragging
+
+  // Dragging a pinned icon reorders the row. The reorder is a preview until the
+  // button comes up: `pinned` — and with it dock.json — is written once, on the
+  // drop, not at every slot the icon crosses. Until then the model holds still
+  // and the row shows the new order by sliding the icons the drag has passed.
+  property string dragKey: ""
+  property int dragFrom: -1
+  property int dragTo: -1
+  property real dragOffsetX: 0
+  property bool rebuildDeferred: false
+  readonly property bool dragging: root.dragKey !== ""
+
+  function beginDrag(item, index) {
+    if (!item || index < 0) return
+    root.dragKey = item.key
+    root.dragFrom = index
+    root.dragTo = index
+    root.dragOffsetX = 0
+    root.closeMenu()
+  }
+
+  // How far the slot at `pinnedIndex` slides to open the gap: one slot towards
+  // the dragged icon's origin, for every slot between where it started and
+  // where it is now.
+  function dragShift(pinnedIndex) {
+    if (!root.dragging || pinnedIndex < 0 || pinnedIndex === root.dragFrom) return 0
+    if (root.dragTo > root.dragFrom && pinnedIndex > root.dragFrom && pinnedIndex <= root.dragTo) return -1
+    if (root.dragTo < root.dragFrom && pinnedIndex >= root.dragTo && pinnedIndex < root.dragFrom) return 1
+    return 0
+  }
+
+  // Commit on a drop, discard on a cancel — either way the drag state goes
+  // first, so the rebuild at the end is the one that runs for real.
+  function finishDrag(commit) {
+    var from = root.dragFrom
+    var to = root.dragTo
+    root.dragKey = ""
+    root.dragFrom = -1
+    root.dragTo = -1
+    root.dragOffsetX = 0
+    root.rebuildDeferred = false
+    if (commit && from >= 0 && to >= 0 && from !== to) {
+      root.pinned = DockModel.moveEntry(DockModel.pinnedOrder(root.items), from, to)
+      root.saveConfig()
+    }
+    root.rebuild()
+  }
+
   function togglePinById(desktopId) {
     var id = DockModel.normalizeId(desktopId)
     if (id.length === 0) return
@@ -243,10 +310,12 @@ Item {
   }
 
   function toggleAppPanel() {
+    root.closeMenu()
     appPanel.toggle()
   }
 
   function toggleSettings() {
+    root.closeMenu()
     settingsPanel.toggle()
   }
 
@@ -312,6 +381,13 @@ Item {
     root.hoverText = ""
   }
 
+  // Right clicking the slot whose menu is already up closes it: the gesture
+  // that opened the menu is the one that takes it away.
+  function toggleMenu(target, item) {
+    if (root.menuOpen && root.menuTarget === target) root.closeMenu()
+    else root.openMenu(target, item)
+  }
+
   function openMenu(target, item) {
     if (!item) return
     var windows = item.toplevels ? item.toplevels.length : 0
@@ -373,6 +449,21 @@ Item {
         WlrLayershell.namespace: "omarchy-dock"
         WlrLayershell.layer: WlrLayer.Top
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+        // The dock's own background is a right-click target: settings. It is
+        // declared before the panel so every icon on top of it wins the click,
+        // and it covers the whole reserved strip rather than just the rounded
+        // surface — that is what keeps a way in when the applications button,
+        // the other way in, has been switched off.
+        MouseArea {
+          anchors.fill: parent
+          acceptedButtons: Qt.RightButton
+          onClicked: {
+            // With a menu up, the first click is a dismissal like any other.
+            if (root.menuOpen) root.closeMenu()
+            else root.toggleSettings()
+          }
+        }
 
         BorderSurface {
           id: dockPanel
@@ -489,8 +580,44 @@ Item {
                 }
                 readonly property bool menuOpenHere: root.menuOpen && root.menuTarget === slot
 
+                // Pinned items are the head of the row and the separator goes
+                // in after them, so a pinned slot's index in the row is also
+                // its index in the pinned order. Unpinned slots get -1: they
+                // have no saved position to drag.
+                readonly property int pinnedIndex: (!slot.isSeparator && slot.item
+                  && slot.item.pinned === true) ? slot.index : -1
+                readonly property bool dragging: root.dragging && slot.pinnedIndex === root.dragFrom
+                readonly property real slideX: slot.dragging
+                  ? 0
+                  : root.dragShift(slot.pinnedIndex) * (root.slotSize + dockRow.spacing)
+
                 width: slot.isSeparator ? Style.space(11) : root.slotSize
                 height: root.slotSize + root.indicatorRow
+                // Above its neighbours while it is the one in hand.
+                z: slot.dragging ? 1 : 0
+
+                // Both offsets are transforms rather than changes to x: the Row
+                // owns x, and a transform moves the icon and its dots together
+                // without the positioner arguing about it.
+                transform: [
+                  Translate {
+                    // Neighbours opening the gap. Animated — this one is the
+                    // row rearranging itself, not the hand.
+                    x: slot.slideX
+                    Behavior on x {
+                      NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                    }
+                  },
+                  Translate {
+                    // The icon in hand, tracking the pointer 1:1 and lifted a
+                    // little so it reads as picked up.
+                    x: slot.dragging ? root.dragOffsetX : 0
+                    y: slot.dragging ? -Style.space(4) : 0
+                    Behavior on y {
+                      NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                    }
+                  }
+                ]
 
                 // Divider between the pinned apps and the ones that are merely
                 // running: the dock says which is which without a label.
@@ -532,7 +659,7 @@ Item {
                     smooth: true
                     mipmap: true
 
-                    scale: slotMouse.pressed ? 0.88 : 1.0
+                    scale: slot.dragging ? 1.06 : (slotMouse.pressed ? 0.88 : 1.0)
                     Behavior on scale {
                       NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
                     }
@@ -573,11 +700,64 @@ Item {
                   enabled: !slot.isSeparator
                   hoverEnabled: true
                   acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
-                  cursorShape: Qt.PointingHandCursor
+                  cursorShape: slot.dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+
+                  // The press point is kept in the row's coordinates, not the
+                  // slot's: the dragged slot carries a transform, so its own
+                  // local x slides out from under the pointer and a delta taken
+                  // there would eat itself.
+                  property real pressRowX: 0
+                  property bool dragCandidate: false
+                  property bool dragHappened: false
+
+                  onPressed: function (mouse) {
+                    slotMouse.dragHappened = false
+                    slotMouse.dragCandidate = mouse.button === Qt.LeftButton
+                      && slot.pinnedIndex >= 0 && root.pinnedCount > 1
+                    slotMouse.pressRowX = dockRow.mapFromItem(slotMouse, mouse.x, 0).x
+                  }
+
+                  onPositionChanged: function (mouse) {
+                    if (!slotMouse.dragCandidate) return
+                    var dx = dockRow.mapFromItem(slotMouse, mouse.x, 0).x - slotMouse.pressRowX
+                    if (!slot.dragging) {
+                      // Below the threshold this is still a click that wobbled.
+                      if (Math.abs(dx) < Style.space(8)) return
+                      slotMouse.dragHappened = true
+                      root.hideTooltip(slot)
+                      root.beginDrag(slot.item, slot.pinnedIndex)
+                    }
+                    var step = root.slotSize + dockRow.spacing
+                    var home = slot.x + slot.width / 2
+                    var first = home - slot.pinnedIndex * step
+                    var last = first + (root.pinnedCount - 1) * step
+                    // The icon stays inside the band it can be dropped in:
+                    // nowhere it can go is somewhere it cannot land.
+                    var center = Math.max(first, Math.min(last, home + dx))
+                    root.dragOffsetX = center - home
+                    root.dragTo = Math.round((center - first) / step)
+                  }
+
+                  onReleased: {
+                    slotMouse.dragCandidate = false
+                    if (slot.dragging) root.finishDrag(true)
+                  }
+
+                  // The grab going away — a monitor change, a compositor
+                  // hiccup — drops the icon back where it started.
+                  onCanceled: {
+                    slotMouse.dragCandidate = false
+                    if (slot.dragging) root.finishDrag(false)
+                  }
 
                   onClicked: function (mouse) {
+                    // The release that ends a drag is not a click.
+                    if (slotMouse.dragHappened) {
+                      slotMouse.dragHappened = false
+                      return
+                    }
                     if (mouse.button === Qt.RightButton) {
-                      root.openMenu(slot, slot.item)
+                      root.toggleMenu(slot, slot.item)
                     } else if (mouse.button === Qt.MiddleButton) {
                       root.launch(slot.item)
                     } else {
@@ -592,12 +772,28 @@ Item {
                   Component.onDestruction: {
                     root.hideTooltip(slot)
                     if (root.menuTarget === slot) root.closeMenu()
+                    if (slot.dragging) root.finishDrag(false)
                   }
                 }
               }
             }
           }
 
+        }
+
+        // ------------------------------------------------ menu dismissal
+
+        // While a menu is up the dock behaves like the outside of it: a plain
+        // click anywhere on the strip dismisses rather than launching, which
+        // is what the focus grab already does for everywhere else on screen.
+        // Right clicks fall through, so a slot can still close its own menu or
+        // hand it straight to its neighbour.
+        MouseArea {
+          anchors.fill: parent
+          z: 10
+          enabled: root.menuOpen
+          acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+          onPressed: root.closeMenu()
         }
 
         // ----------------------------------------------------- tooltip

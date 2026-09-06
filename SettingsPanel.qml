@@ -166,16 +166,16 @@ Item {
             }
           }
 
-          // Turning it off removes the only way back into this card, so the
-          // card says where the other one is before you do it.
+          // Turning it off takes away one of the two ways back into this card,
+          // so the card names the other one before you do it.
           Text {
             width: parent.width
             text: root.showAppsButton
               ? "The nine-dot button at the left of the dock. Left click opens the applications, right click opens these settings."
-              : "Hidden. These settings are still reachable with “omarchy-shell dock settings”, and the grid with “omarchy-shell dock apps”."
+              : "Hidden. Right click the dock itself — anywhere but an icon — to open these settings again, or run “omarchy-shell dock settings”. The grid is “omarchy-shell dock apps”."
             textFormat: Text.PlainText
             wrapMode: Text.Wrap
-            color: root.showAppsButton ? Util.alpha(Color.menu.text, 0.6) : Color.urgent
+            color: Util.alpha(Color.menu.text, 0.6)
             font.family: Style.font.family
             font.pixelSize: Style.font.bodySmall
           }
