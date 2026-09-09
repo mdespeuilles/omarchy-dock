@@ -68,7 +68,9 @@ The nine-dot button at the left of the dock opens a full-screen grid of every
 installed application.
 
 - **Type** to search — no need to click a field first. The matching, scoring and
-  sorting are `appLibrary.sortedEntries`, the same search the Omarchy menu uses.
+  sorting live in `AppSearch.js`, ranked the way the Omarchy menu ranks: what a
+  name starts with beats what it merely contains, and both beat a match in a
+  comment or a keyword.
 - **Arrows** move, **Enter** launches, **Esc** clears the search and then closes.
 - **Left click** launches and closes the panel.
 - **Right click** opens Launch / Pin to dock / Unpin from dock.
@@ -169,6 +171,17 @@ not the dock. `cursor.no_warps = true` in `~/.config/hypr/looknfeel.lua` turns
 it off; it applies to every focus change, not just dock clicks, and leaves
 `warp_on_change_workspace` alone.
 
+**The dock owns its application library.** It used to read icons, the app list
+and launching from `shell.appLibrary`, the host object the shell injects into a
+plugin. Omarchy now scopes that object to plugins declaring the `menu` kind,
+and as of Omarchy 4 it never reaches a third-party plugin at all: `appLibrary`
+arrives null even for a manifest that declares `menu`, and the injected `shell`
+handle itself is revoked about a second after load and never replaced. So
+`DockAppLibrary.qml` reads `DesktopEntries`, `Quickshell.iconPath` and
+`execDetached` directly — all of which Quickshell gives any QML file. Nothing
+in the dock depends on `shell` any more; treat that property as always about to
+go null.
+
 **Quickshell recompiles plugin QML from a cache.** Saving a file logs
 `Local plugin changed, reloading` and still runs the old code, which makes an
 edit look like it had no effect. `omarchy restart shell` forces a clean reload.
@@ -182,6 +195,8 @@ The tell is an error whose line number does not move while the file does.
 | `AppPanel.qml` | the full-screen application grid and its search |
 | `SettingsPanel.qml` | the settings card |
 | `DockModel.js` | pure model logic: id normalization, the pinned/running merge, window cycling, reordering, config parsing |
+| `DockAppLibrary.qml` | icon paths, the installed-app list and launching, read straight from Quickshell |
+| `AppSearch.js` | pure search logic: scoring and ordering for the grid's filter |
 
 ## License
 

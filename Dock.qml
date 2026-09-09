@@ -14,11 +14,16 @@ import "DockModel.js" as DockModel
 // covers the dock. That is the whole reason it can skip the autohide machinery
 // other docks need.
 //
-// Nothing here re-implements what the shell already owns. Icons, desktop-entry
-// lookup and launching come from `shell.appLibrary`; colors, radii and spacing
-// come from the Color and Style singletons, so `omarchy theme set` restyles the
-// dock with no code of ours involved. Window state is the Wayland toplevel
-// list, which is also what the bar's active-window widget reads.
+// Colors, radii and spacing come from the Color and Style singletons, so
+// `omarchy theme set` restyles the dock with no code of ours involved. Window
+// state is the Wayland toplevel list, which is also what the bar's
+// active-window widget reads.
+//
+// Icons, the app list and launching used to come from `shell.appLibrary`.
+// They now come from DockAppLibrary, which reads Quickshell directly: the
+// shell no longer lets a third-party plugin hold that capability. The `shell`
+// handle below is still injected, and still goes null a moment later, so
+// nothing may depend on it.
 Item {
   id: root
 
@@ -27,8 +32,13 @@ Item {
   property var shell: null
   property var manifest: null
 
-  readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
+  readonly property var appLibrary: dockAppLibrary
   readonly property string configPath: Quickshell.env("HOME") + "/.config/omarchy/dock.json"
+
+  DockAppLibrary {
+    id: dockAppLibrary
+    omarchyPath: root.omarchyPath
+  }
 
   // ------------------------------------------------------------- config
 
@@ -221,8 +231,7 @@ Item {
 
   function launch(item) {
     if (!item) return
-    if (root.appLibrary) root.appLibrary.launch(item.id, item.name)
-    else Util.execDetached("uwsm-app -- gtk-launch " + Util.shellQuote(item.id + ".desktop"))
+    root.appLibrary.launch(item.id, item.name)
   }
 
   // Not running: launch, and Hyprland puts the window on the workspace you are
